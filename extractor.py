@@ -1,0 +1,188 @@
+import os
+import re
+import requests
+from typing import Dict, Any, Optional
+from pydantic import BaseModel
+from youtube_transcript_api import YouTubeTranscriptApi
+import yt_dlp
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# --- 1. Define Unified Data Schema ---
+class VideoMetadata(BaseModel):
+    video_id: str
+    platform: str
+    title: str
+    creator: str
+    follower_count: int
+    views: int
+    likes: int
+    comments: int
+    duration: int
+    upload_date: str
+    hashtags: list[str]
+    transcript: str
+    engagement_rate: float
+
+# --- 2. YouTube Extraction Engine ---
+# (Keep your existing YouTubeExtractor class exactly as it was)
+class YouTubeExtractor:
+    @staticmethod
+    def extract_video_id(url: str) -> Optional[str]:
+        pattern = r'(?:v=|\/shorts\/|\/embed\/|\/v\/|youtu\.be\/|\/v=)([^"&?\/ ]{11})'
+        match = re.search(pattern, url)
+        return match.group(1) if match else None
+
+    def get_metadata_and_transcript(self, url: str) -> Dict[str, Any]:
+        video_id = self.extract_video_id(url)
+        if not video_id:
+            raise ValueError("Invalid YouTube URL provided.")
+
+        ydl_opts = {'skip_download': True, 'quiet': True, 'no_warnings': True}
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+        views = info.get('view_count') or 0
+        likes = info.get('like_count') or 0
+        comments = info.get('comment_count') or 0
+        engagement_rate = ((likes + comments) / views * 100) if views > 0 else 0.0
+
+        # Fetch Transcript with Aggressive Search
+        try:
+            # 1. List all available transcripts for the video
+            transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
+            
+            # 2. Try to find any variation of English (manual or auto-generated)
+            try:
+                transcript_data = transcripts.find_transcript(['en', 'en-US', 'en-GB', 'en-IN', 'en-CA']).fetch()
+            except Exception:
+                # 3. If no English is found, just grab the very first available transcript (any language)
+                transcript_data = next(iter(transcripts)).fetch()
+                
+            # Clean up the text by stripping newlines and joining
+            raw_text = [t['text'].replace('\n', ' ') for t in transcript_data]
+            full_transcript = " ".join(raw_text)
+            
+        except Exception as e:
+            print(f"⚠️ YT Transcript fully unavailable (Captions disabled). Using description.")
+            full_transcript = info.get('description') or "No transcript available."
+
+        return {
+            "video_id": video_id,
+            "platform": "youtube",
+            "title": info.get('title') or 'Unknown Title',
+            "creator": info.get('uploader') or 'Unknown Creator',
+            "follower_count": info.get('channel_follower_count') or 0,
+            "views": views,
+            "likes": likes,
+            "comments": comments,
+            "duration": info.get('duration') or 0,
+            "upload_date": info.get('upload_date') or 'Unknown Date',
+            "hashtags": info.get('tags') or [],
+            "transcript": full_transcript,
+            "engagement_rate": round(engagement_rate, 2)
+        }
+
+# --- 3. Instagram Extraction Engine (Instagram Looter API) ---
+class InstagramExtractor:
+    def __init__(self):
+        self.api_key = os.getenv("RAPIDAPI_KEY")
+        if not self.api_key:
+            raise EnvironmentError("RAPIDAPI_KEY is missing from .env file.")
+        
+        self.api_url = "https://instagram-looter2.p.rapidapi.com/post"
+        self.api_host = "instagram-looter2.p.rapidapi.com"
+
+    def get_metadata_and_transcript(self, url: str) -> Dict[str, Any]:
+        headers = {
+            "x-rapidapi-key": self.api_key,
+            "x-rapidapi-host": self.api_host,
+            "Content-Type": "application/json"
+        }
+        
+        # The Looter API takes the full URL directly. No regex needed!
+        querystring = {"url": url} 
+        
+        response = requests.get(self.api_url, headers=headers, params=querystring)
+        
+        if response.status_code != 200:
+            raise ConnectionError(f"Instagram API Failed: {response.status_code} - {response.text}")
+            
+        data = response.json()
+        
+        # Uncomment the line below temporarily if you get a KeyError, 
+        # so you can see the exact JSON structure the API returns in your terminal.
+        # print("DEBUG IG DATA:", data)
+        
+        try:
+            # NOTE: Because every RapidAPI wrapper names their keys differently, 
+            # I am making an educated guess based on standard Instagram JSON schemas. 
+            # If this throws a KeyError, check the printed DEBUG IG DATA and update the keys below.
+            
+            # Sometimes the data is wrapped in a 'data' object, sometimes it's at the root.
+            item = data if 'edge_media_preview_like' in data else data.get('data', {})
+
+            views = item.get('video_view_count') or 0
+            
+            # Instagram usually stores likes under 'edge_media_preview_like' -> 'count'
+            likes = item.get('edge_media_preview_like', {}).get('count') or item.get('like_count') or 0
+            
+            # Comments are usually under 'edge_media_to_comment' -> 'count'
+            comments = item.get('edge_media_to_comment', {}).get('count') or item.get('comment_count') or 0
+            
+            engagement_rate = ((likes + comments) / views * 100) if views > 0 else 0.0
+            
+            # Caption parsing (often deeply nested in IG JSON)
+            edges = item.get('edge_media_to_caption', {}).get('edges', [])
+            caption = edges[0].get('node', {}).get('text') if edges else "No caption available."
+
+            return {
+                "video_id": item.get('shortcode', 'unknown_id'),
+                "platform": "instagram",
+                "title": caption[:50] + "...", 
+                "creator": item.get('owner', {}).get('username', 'Unknown Creator'),
+                "follower_count": 0, # Often not provided in post-specific endpoints
+                "views": views,
+                "likes": likes,
+                "comments": comments,
+                "duration": int(item.get('video_duration', 0)),
+                "upload_date": str(item.get('taken_at_timestamp', 'Unknown Date')),
+                "hashtags": [],
+                "transcript": caption, 
+                "engagement_rate": round(engagement_rate, 2)
+            }
+        except Exception as e:
+            # If the parsing fails, this will catch it and show you exactly what went wrong
+            raise KeyError(f"Failed to parse Instagram API response: {e}. Check the raw JSON structure.")
+        
+
+# --- 4. Orchestration Entry Point ---
+def extract_all_video_data(yt_url: str, ig_url: str) -> Dict[str, VideoMetadata]:
+    yt_engine = YouTubeExtractor()
+    ig_engine = InstagramExtractor()
+    
+    print("🚀 Extracting YouTube Data...")
+    yt_data = VideoMetadata(**yt_engine.get_metadata_and_transcript(yt_url))
+    
+    print("🚀 Extracting Instagram Data via Proxy API...")
+    ig_data = VideoMetadata(**ig_engine.get_metadata_and_transcript(ig_url))
+    print(f"Video A:\n{yt_data}")
+    print(f"Video B:\n{ig_data}")
+    
+    return {
+        "video_A": yt_data,
+        "video_B": ig_data
+    }
+
+if __name__ == "__main__":
+    sample_yt = "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 
+    sample_ig = "https://www.instagram.com/reels/DYQSPVCT_V-/"
+    
+    results = extract_all_video_data(sample_yt, sample_ig)
+    
+    print("\n✅ Extraction Complete!")
+    print(f"Video A (YT) | Creator: {results['video_A'].creator} | Engagement: {results['video_A'].engagement_rate}%")
+    print(f"Video B (IG) | Creator: {results['video_B'].creator} | Engagement: {results['video_B'].engagement_rate}%")
