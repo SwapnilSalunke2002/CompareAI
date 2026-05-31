@@ -159,30 +159,49 @@ class InstagramExtractor:
             raise KeyError(f"Failed to parse Instagram API response: {e}. Check the raw JSON structure.")
         
 
-# --- 4. Orchestration Entry Point ---
-def extract_all_video_data(yt_url: str, ig_url: str) -> Dict[str, VideoMetadata]:
+# --- 4. Orchestration Entry Point & Dynamic Routing ---
+def detect_platform(url: str) -> str:
+    """Intelligently routes the URL to the correct microservice based on domain."""
+    url_lower = url.lower()
+    if "youtube.com" in url_lower or "youtu.be" in url_lower:
+        return "youtube"
+    elif "instagram.com" in url_lower:
+        return "instagram"
+    else:
+        raise ValueError(f"Unsupported platform. Please provide a YouTube or Instagram URL. Invalid URL: {url}")
+
+def extract_all_video_data(url_a: str, url_b: str) -> Dict[str, VideoMetadata]:
     yt_engine = YouTubeExtractor()
     ig_engine = InstagramExtractor()
     
-    print("🚀 Extracting YouTube Data...")
-    yt_data = VideoMetadata(**yt_engine.get_metadata_and_transcript(yt_url))
-    
-    print("🚀 Extracting Instagram Data via Proxy API...")
-    ig_data = VideoMetadata(**ig_engine.get_metadata_and_transcript(ig_url))
-    print(f"Video A:\n{yt_data}")
-    print(f"Video B:\n{ig_data}")
+    # Process Video A
+    print(f"🚀 Detecting Platform for Video A...")
+    platform_a = detect_platform(url_a)
+    if platform_a == "youtube":
+        data_a = VideoMetadata(**yt_engine.get_metadata_and_transcript(url_a))
+    else:
+        data_a = VideoMetadata(**ig_engine.get_metadata_and_transcript(url_a))
+        
+    # Process Video B
+    print(f"🚀 Detecting Platform for Video B...")
+    platform_b = detect_platform(url_b)
+    if platform_b == "youtube":
+        data_b = VideoMetadata(**yt_engine.get_metadata_and_transcript(url_b))
+    else:
+        data_b = VideoMetadata(**ig_engine.get_metadata_and_transcript(url_b))
     
     return {
-        "video_A": yt_data,
-        "video_B": ig_data
+        "video_A": data_a,
+        "video_B": data_b
     }
 
 if __name__ == "__main__":
-    sample_yt = "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 
-    sample_ig = "https://www.instagram.com/reels/DYQSPVCT_V-/"
+    # Test it by passing TWO YouTube Shorts
+    sample_yt_1 = "https://www.youtube.com/shorts/dQw4w9WgXcQ" 
+    sample_yt_2 = "https://www.youtube.com/shorts/3JZ_D3ELwOQ"
     
-    results = extract_all_video_data(sample_yt, sample_ig)
+    results = extract_all_video_data(sample_yt_1, sample_yt_2)
     
-    print("\n✅ Extraction Complete!")
-    print(f"Video A (YT) | Creator: {results['video_A'].creator} | Engagement: {results['video_A'].engagement_rate}%")
-    print(f"Video B (IG) | Creator: {results['video_B'].creator} | Engagement: {results['video_B'].engagement_rate}%")
+    print("\n✅ Dynamic Extraction Complete!")
+    print(f"Video A ({results['video_A'].platform}) | Creator: {results['video_A'].creator}")
+    print(f"Video B ({results['video_B'].platform}) | Creator: {results['video_B'].creator}")
