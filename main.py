@@ -9,7 +9,7 @@ from typing import List, Dict
 # Import your architectural pieces
 from extractor import extract_all_video_data
 from indexer import RAGIndexer
-from agent import CompareAIEngine, StreamingCompareAgent # <-- Make sure to add StreamingCompareAgent to agent.py
+from agent import CompareAIEngine, StreamingCompareAgent 
 
 app = FastAPI(title="CompareAI Core Engine")
 
@@ -21,7 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Request Models ---
+# Request Models 
 class ComparisonRequest(BaseModel):
     video_url_a: str
     video_url_b: str
@@ -36,8 +36,6 @@ class ChatTurnRequest(BaseModel):
     metrics: dict
 
 # --- GLOBAL INITIALIZATION (The Scaling Secret) ---
-# We load these heavy models into memory once at startup. 
-# Now, routing requests takes milliseconds, not seconds.
 print("⏳ Initializing AI Engines (Loading HuggingFace models)...")
 rag_indexer = RAGIndexer()
 engine = CompareAIEngine()
@@ -50,7 +48,7 @@ def helper_to_dict(obj):
     if hasattr(obj, "__dict__"): return obj.__dict__
     return str(obj)
 
-# --- ROUTE 1: Initial Extraction & Indexing ---
+# ROUTE 1: Initial Extraction & Indexing ---
 @app.post("/api/compare")
 async def compare_videos(request: ComparisonRequest):
     try:
@@ -84,7 +82,7 @@ async def compare_videos(request: ComparisonRequest):
         traceback.print_exc() 
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- ROUTE 2: Interactive RAG Chat Stream ---
+# ROUTE 2: Interactive RAG Chat Stream ---
 @app.post("/api/chat/stream")
 async def chat_stream_endpoint(request: ChatTurnRequest):
     try:

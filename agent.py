@@ -16,10 +16,10 @@ class CompareAIEngine:
         self.vector_store = PineconeVectorStore(
             index_name=index_name,
             embedding=self.embeddings,
-            namespace="live_comparison" # <-- CRITICAL: Only read the fresh vectors!
+            namespace="live_comparison" 
         )
         self.llm = ChatGroq(
-            temperature=0.1, # Lowered temperature to stop hallucination
+            temperature=0.1, 
             model_name="llama-3.3-70b-versatile",
             groq_api_key=os.getenv("GROQ_API_KEY")
         )
@@ -106,7 +106,7 @@ class StreamingCompareAgent:
             embedding=self.embeddings,
             namespace="live_comparison"
         )
-        # Compliant: Use LangChain's native ecosystem for execution
+
         self.llm = ChatGroq(
             temperature=0.1,
             model_name="llama-3.3-70b-versatile",

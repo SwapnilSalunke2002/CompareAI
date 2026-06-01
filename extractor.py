@@ -7,10 +7,9 @@ from youtube_transcript_api import YouTubeTranscriptApi
 import yt_dlp
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
-# --- 1. Define Unified Data Schema ---
+# 1. Define Unified Data Schema
 class VideoMetadata(BaseModel):
     video_id: str
     platform: str
@@ -26,8 +25,7 @@ class VideoMetadata(BaseModel):
     transcript: str
     engagement_rate: float
 
-# --- 2. YouTube Extraction Engine ---
-# (Keep your existing YouTubeExtractor class exactly as it was)
+# 2. YouTube Extraction Engine 
 class YouTubeExtractor:
     @staticmethod
     def extract_video_id(url: str) -> Optional[str]:
@@ -70,10 +68,10 @@ class YouTubeExtractor:
             print(f"⚠️ YT Transcript fully unavailable (Captions disabled). Using description.")
             full_transcript = info.get('description') or "No transcript available."
 
-        # Add Regex fallback for YouTube Hashtags
+
         description = info.get('description') or ""
         tags = info.get('tags') or []
-        if not tags: # If YouTube API fails to provide tags, scrape them manually
+        if not tags: 
             tags = re.findall(r"#(\w+)", description)
             
         return {
@@ -87,12 +85,12 @@ class YouTubeExtractor:
             "comments": comments,
             "duration": info.get('duration') or 0,
             "upload_date": info.get('upload_date') or 'Unknown Date',
-            "hashtags": tags, # <-- Now robustly populated
+            "hashtags": tags, 
             "transcript": full_transcript,
             "engagement_rate": round(engagement_rate, 2)
         }
 
-# --- 3. Instagram Extraction Engine (Instagram Looter API) ---
+
 class InstagramExtractor:
     def __init__(self):
         self.api_key = os.getenv("RAPIDAPI_KEY")
@@ -109,7 +107,7 @@ class InstagramExtractor:
             "Content-Type": "application/json"
         }
         
-        # The Looter API takes the full URL directly. No regex needed!
+
         querystring = {"url": url} 
         
         response = requests.get(self.api_url, headers=headers, params=querystring)
@@ -118,38 +116,26 @@ class InstagramExtractor:
             raise ConnectionError(f"Instagram API Failed: {response.status_code} - {response.text}")
             
         data = response.json()
-        
-        # Uncomment the line below temporarily if you get a KeyError, 
-        # so you can see the exact JSON structure the API returns in your terminal.
-        # print("DEBUG IG DATA:", data)
+
         
         try:
-            # NOTE: Because every RapidAPI wrapper names their keys differently, 
-            # I am making an educated guess based on standard Instagram JSON schemas. 
-            # If this throws a KeyError, check the printed DEBUG IG DATA and update the keys below.
-            
-            # Sometimes the data is wrapped in a 'data' object, sometimes it's at the root.
             item = data if 'edge_media_preview_like' in data else data.get('data', {})
 
             views = item.get('video_view_count') or 0
             
-            # Instagram usually stores likes under 'edge_media_preview_like' -> 'count'
             likes = item.get('edge_media_preview_like', {}).get('count') or item.get('like_count') or 0
             
-            # Comments are usually under 'edge_media_to_comment' -> 'count'
+
             comments = item.get('edge_media_to_comment', {}).get('count') or item.get('comment_count') or 0
             
             engagement_rate = ((likes + comments) / views * 100) if views > 0 else 0.0
             
             
-            # Caption parsing 
             edges = item.get('edge_media_to_caption', {}).get('edges', [])
             caption = edges[0].get('node', {}).get('text') if edges else ""
             
-            # Aggressive Regex Hashtag scraping for IG
             hashtags = re.findall(r"#(\w+)", caption)
 
-            # Deep fallback for IG comments (different Looter API endpoints nest this differently)
             comments = (
                 item.get('edge_media_to_comment', {}).get('count') or 
                 item.get('edge_media_preview_comment', {}).get('count') or 
@@ -164,19 +150,18 @@ class InstagramExtractor:
                 "follower_count": item.get('owner', {}).get('edge_followed_by', {}).get('count') or 0,
                 "views": views,
                 "likes": likes,
-                "comments": comments, # <-- Now robustly populated
+                "comments": comments,
                 "duration": int(item.get('video_duration', 0)),
                 "upload_date": str(item.get('taken_at_timestamp', 'Unknown Date')),
-                "hashtags": hashtags, # <-- Now robustly populated
+                "hashtags": hashtags, 
                 "transcript": caption if caption else "No caption available.", 
                 "engagement_rate": round(engagement_rate, 2)
             }
         except Exception as e:
-            # If the parsing fails, this will catch it and show you exactly what went wrong
             raise KeyError(f"Failed to parse Instagram API response: {e}. Check the raw JSON structure.")
         
 
-# --- 4. Orchestration Entry Point & Dynamic Routing ---
+# 4. Orchestration Entry Point & Dynamic Routing ---
 def detect_platform(url: str) -> str:
     """Intelligently routes the URL to the correct microservice based on domain."""
     url_lower = url.lower()
@@ -213,7 +198,7 @@ def extract_all_video_data(url_a: str, url_b: str) -> Dict[str, VideoMetadata]:
     }
 
 if __name__ == "__main__":
-    # Test it by passing TWO YouTube Shorts
+    # For Testing Purpose
     sample_yt_1 = "https://www.youtube.com/shorts/dQw4w9WgXcQ" 
     sample_yt_2 = "https://www.youtube.com/shorts/3JZ_D3ELwOQ"
     

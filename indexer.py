@@ -15,7 +15,7 @@ class RAGIndexer:
     def __init__(self, index_name: str = "compare-ai-os"):
         self.pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         self.index_name = index_name
-        self.namespace = "live_comparison" # <-- Isolate our data
+        self.namespace = "live_comparison" 
         
         print("📥 Initializing local open-source embedding model (all-MiniLM-L6-v2)...")
         self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
@@ -66,7 +66,6 @@ class RAGIndexer:
         print("🧹 Wiping previous video data from Vector DB...")
         try:
             index = self.pc.Index(self.index_name)
-            # Delete all vectors in our specific namespace so old videos don't pollute the new report
             index.delete(delete_all=True, namespace=self.namespace)
         except Exception as e:
             print(f"⚠️ Note on cleanup (Expected on first run): {e}")
@@ -76,7 +75,7 @@ class RAGIndexer:
             documents=docs,
             embedding=self.embeddings,
             index_name=self.index_name,
-            namespace=self.namespace # <-- Upload to the isolated namespace
+            namespace=self.namespace 
         )
         print("✅ Successfully indexed fresh data into Vector DB.")
 
