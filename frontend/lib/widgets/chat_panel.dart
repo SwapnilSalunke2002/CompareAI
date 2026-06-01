@@ -42,7 +42,7 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
     _scrollToBottom();
 
     try {
-      final request = http.Request('POST', Uri.parse('http://127.0.0.1:8000/api/chat/stream'));
+      final request = http.Request('POST', Uri.parse('https://swapnilsalunke-compare-ai-backend.hf.space/api/chat/stream'));
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode({
         'query': query,
