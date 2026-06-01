@@ -1,5 +1,6 @@
 import os
 import traceback
+import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,24 +37,41 @@ class ChatTurnRequest(BaseModel):
     history: List[ChatMessage]
     metrics: dict
 
-# --- LAZY INITIALIZATION HOLDERS ---
+# --- NON-BLOCKING INITIALIZATION LAYERS ---
 shared_embeddings = None
 rag_indexer = None
 engine = None
 streaming_agent = None
+is_ready = False
 
-def get_rag_services():
-    """Lazily loads the heavy AI models ONLY when the first request hits the server.
-    This prevents Render from timing out during the initial port scan boot phase.
+async def background_warm_up():
+    """Loads the model from disk cache into RAM asynchronously.
+    This protects incoming requests from hitting timeout bounds.
     """
-    global shared_embeddings, rag_indexer, engine, streaming_agent
-    if shared_embeddings is None:
-        print("⏳ First request received! Lazy Initializing Shared Embedding Engine...")
+    global shared_embeddings, rag_indexer, engine, streaming_agent, is_ready
+    try:
+        print("⏳ Background Worker: Mounting cached model into RAM...")
         shared_embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         rag_indexer = RAGIndexer(embeddings=shared_embeddings)
         engine = CompareAIEngine(embeddings=shared_embeddings)
         streaming_agent = StreamingCompareAgent(embeddings=shared_embeddings)
-        print("✅ AI Engines Ready and Cached!")
+        is_ready = True
+        print("🚀 Background Worker: AI Engines loaded in memory successfully!")
+    except Exception as e:
+        print(f"❌ Background Worker Error: Failed to load models: {e}")
+
+@app.on_event("startup")
+async def startup_event():
+    # Instantly yields control back to Uvicorn so the port opens immediately
+    asyncio.create_task(background_warm_up())
+
+def check_engine_health():
+    """Fails defensively if a user hits the application before RAM is ready."""
+    if not is_ready:
+        raise HTTPException(
+            status_code=503, 
+            detail="AI Engine is still initializing. Please retry in 5 seconds."
+        )
     return rag_indexer, engine, streaming_agent
 
 def helper_to_dict(obj):
@@ -67,10 +85,10 @@ def helper_to_dict(obj):
 async def compare_videos(request: ComparisonRequest):
     try:
         print("\n" + "="*50)
-        print(f"📥 RECEIVED NEW REQUEST:\nURL A: {request.video_url_a}\nURL B: {request.video_url_b}")
+        print(f"📥 REQUEST:\nURL A: {request.video_url_a}\nURL B: {request.video_url_b}")
         
-        # Safely fetch or initialize our backend engines
-        indexer_inst, engine_inst, _ = get_rag_services()
+        # Verify background states are active
+        indexer_inst, engine_inst, _ = check_engine_health()
         
         print("⚡ Phase 1: Extractor...")
         raw_data = extract_all_video_data(request.video_url_a, request.video_url_b)
@@ -103,11 +121,9 @@ async def compare_videos(request: ComparisonRequest):
 @app.post("/api/chat/stream")
 async def chat_stream_endpoint(request: ChatTurnRequest):
     try:
-        # Parse history cleanly for the LangChain/Groq agent
         formatted_history = [{"role": m.role, "content": m.content} for m in request.history]
         
-        # Safely fetch or initialize our streaming agent
-        _, _, agent_inst = get_rag_services()
+        _, _, agent_inst = check_engine_health()
         
         return StreamingResponse(
             agent_inst.stream_chat_turn(request.query, formatted_history, request.metrics),
@@ -116,9 +132,3 @@ async def chat_stream_endpoint(request: ChatTurnRequest):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
-if __name__ == "__main__":
-    import uvicorn
-    import os
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
