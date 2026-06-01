@@ -84245,7 +84245,7 @@ if(f.a.a.length===0||n.e.a.a.length===0){n.aq(new A.ak4(n))
 s=1
 break}n.aq(new A.ak5(n))
 p=4
-j=A.fn("https://compare-ai-backend-y7a1.onrender.com/api/compare",0,null)
+j=A.fn("https://swapnilsalunke-compare-ai-backend.hf.space/api/compare",0,null)
 i=t.N
 h=A.an(["Content-Type","application/json"],i,i)
 s=7

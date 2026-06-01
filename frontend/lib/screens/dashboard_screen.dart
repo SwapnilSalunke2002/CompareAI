@@ -24,7 +24,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _errorMessage;
   bool _isChatExpanded = false;
 
-  final String _backendUrl = 'https://compare-ai-backend-y7a1.onrender.com/api/compare';
+  final String _backendUrl = 'https://swapnilsalunke-compare-ai-backend.hf.space/api/compare';
 
   Future<void> _analyzeVideos() async {
     if (_urlAController.text.isEmpty || _urlBController.text.isEmpty) {
