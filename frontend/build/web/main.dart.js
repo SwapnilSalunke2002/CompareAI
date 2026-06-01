@@ -84332,7 +84332,7 @@ break}n.aq(new A.ajj(n,h))
 i.rt(B.Pi)
 n.QO()
 p=4
-m=A.azO("POST",A.fn("http://127.0.0.1:8000/api/chat/stream",0,null))
+m=A.azO("POST",A.fn("https://swapnilsalunke-compare-ai-backend.hf.space/api/chat/stream",0,null))
 m.r.m(0,"Content-Type","application/json")
 i=n.f
 k=i.length
