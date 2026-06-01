@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict
+from langchain_huggingface import HuggingFaceEmbeddings
 
 # Import your architectural pieces
 from extractor import extract_all_video_data
@@ -35,12 +36,16 @@ class ChatTurnRequest(BaseModel):
     history: List[ChatMessage]
     metrics: dict
 
-# --- GLOBAL INITIALIZATION (The Scaling Secret) ---
-print("⏳ Initializing AI Engines (Loading HuggingFace models)...")
-rag_indexer = RAGIndexer()
-engine = CompareAIEngine()
-streaming_agent = StreamingCompareAgent()
-print("✅ AI Engines Ready!")
+# --- GLOBAL INITIALIZATION (The Scaling Secret & RAM Optimizer) ---
+print("⏳ Initializing Global Shared Embedding Engine (Loading HuggingFace model)...")
+# Load the weights into memory EXACTLY ONCE to prevent multi-instance RAM bloat
+shared_embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
+print("🗂️ Passing shared weights to sub-services...")
+rag_indexer = RAGIndexer(embeddings=shared_embeddings)
+engine = CompareAIEngine(embeddings=shared_embeddings)
+streaming_agent = StreamingCompareAgent(embeddings=shared_embeddings)
+print("✅ AI Engines Ready within safe RAM limits!")
 
 def helper_to_dict(obj):
     if obj is None: return {}

@@ -12,13 +12,12 @@ from extractor import VideoMetadata, extract_all_video_data
 load_dotenv()
 
 class RAGIndexer:
-    def __init__(self, index_name: str = "compare-ai-os"):
+    def __init__(self, embeddings, index_name: str = "compare-ai-os"):
         self.pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         self.index_name = index_name
         self.namespace = "live_comparison" 
         
-        print("📥 Initializing local open-source embedding model (all-MiniLM-L6-v2)...")
-        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        self.embeddings = embeddings  # <-- Accept passed shared instance
         
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=400,

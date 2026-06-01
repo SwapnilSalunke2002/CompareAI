@@ -11,8 +11,8 @@ load_dotenv()
 
 # ENGINE 1: The Static Report Generator
 class CompareAIEngine:
-    def __init__(self, index_name: str = "compare-ai-os"):
-        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    def __init__(self, embeddings, index_name: str = "compare-ai-os"):
+        self.embeddings = embeddings 
         self.vector_store = PineconeVectorStore(
             index_name=index_name,
             embedding=self.embeddings,
@@ -97,16 +97,14 @@ class CompareAIEngine:
         
         return response.content
 
-# fully compliant LangChain structure
 class StreamingCompareAgent:
-    def __init__(self, index_name: str = "compare-ai-os"):
-        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    def __init__(self, embeddings, index_name: str = "compare-ai-os"):
+        self.embeddings = embeddings  
         self.vector_store = PineconeVectorStore(
             index_name=index_name, 
             embedding=self.embeddings,
             namespace="live_comparison"
         )
-
         self.llm = ChatGroq(
             temperature=0.1,
             model_name="llama-3.3-70b-versatile",
