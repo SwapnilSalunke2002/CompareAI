@@ -1,0 +1,664 @@
+# CODEBASE AGGREGATION
+# Directories scanned: H:/My Projects/CompareAI/
+
+
+================================================================================
+--- FILE: H:\My Projects\CompareAI\agent.py ---
+================================================================================
+
+import os
+from typing import Dict, Any, List
+from dotenv import load_dotenv
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_pinecone import PineconeVectorStore
+from langchain_groq import ChatGroq
+from langchain_core.prompts import ChatPromptTemplate
+from groq import Groq  
+
+load_dotenv()
+
+# ENGINE 1: The Static Report Generator
+class CompareAIEngine:
+    def __init__(self, index_name: str = "compare-ai-os"):
+        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        self.vector_store = PineconeVectorStore(
+            index_name=index_name,
+            embedding=self.embeddings,
+            namespace="live_comparison" # <-- CRITICAL: Only read the fresh vectors!
+        )
+        self.llm = ChatGroq(
+            temperature=0.1, # Lowered temperature to stop hallucination
+            model_name="llama-3.3-70b-versatile",
+            groq_api_key=os.getenv("GROQ_API_KEY")
+        )
+
+    def _retrieve_video_context(self, video_tag: str, query: str = "main topic key hooks value proposition") -> str:
+        results = self.vector_store.similarity_search(
+            query,
+            k=3,
+            filter={"video_tag": video_tag}
+        )
+        return "\n---\n".join([doc.page_content for doc in results])
+
+    def generate_comparison_report(self, video_a_meta: Dict[str, Any], video_b_meta: Dict[str, Any]) -> str:
+        context_a = self._retrieve_video_context("A")
+        context_b = self._retrieve_video_context("B")
+        
+        # Detect if it is short-form or long-form to give the AI context
+        format_a = "Short-form (Short/Reel)" if video_a_meta.get("duration", 0) < 61 else "Long-form Video"
+        format_b = "Short-form (Short/Reel)" if video_b_meta.get("duration", 0) < 61 else "Long-form Video"
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", (
+                "You are an elite Social Media Growth Strategist and Content Analyst.\n"
+                "Your task is to provide a rigorous, data-backed side-by-side comparison of two videos (Video A and Video B).\n"
+                "You must strictly analyze the provided RAG context and respect the video format (Short-form vs Long-form).\n\n"
+                "CRITICAL FORMATTING INSTRUCTIONS:\n"
+                "- Write a direct, professional report using markdown headers.\n"
+                "- Use bolding for emphasis, tables for clear metrics, and blockquotes for script breakdown.\n"
+                "- Do not hallucinate content. If the transcript context doesn't mention something, do not invent it."
+            )),
+            ("user", (
+                "### RAW QUANTITATIVE METRICS\n"
+                "**Video A ({platform_a} - {format_a})**:\n"
+                "- Creator: {creator_a}\n"
+                "- Duration: {duration_a} seconds\n"
+                "- Engagement Rate: {eng_a}%\n"
+                "- Views: {views_a}\n\n"
+                "**Video B ({platform_b} - {format_b})**:\n"
+                "- Creator: {creator_b}\n"
+                "- Duration: {duration_b} seconds\n"
+                "- Engagement Rate: {eng_b}%\n"
+                "- Views: {views_b}\n\n"
+                "--- \n\n"
+                "### RETRIEVED CONTENT CONTEXT (RAG CHUNKS)\n"
+                "**Video A Transcript Context:**\n{context_a}\n\n"
+                "**Video B Transcript Context:**\n{context_b}\n\n"
+                "--- \n\n"
+                "### REQUIRED ANALYSIS SECTIONS TO GENERATE:\n"
+                "1. **Hook & Pacing Breakdown**: Analyze how each video captures attention based on the text.\n"
+                "2. **Content & Value Proposition Evaluation**: What are they actually offering/saying?\n"
+                "3. **The Engagement Paradox**: Explain why the video with lower views might have a higher engagement rate.\n"
+                "4. **Strategic Actionable Takeaways**: 3 clear bullet points."
+            ))
+        ])
+        
+        chain = prompt | self.llm
+        response = chain.invoke({
+            "platform_a": video_a_meta.get("platform"),
+            "format_a": format_a,
+            "creator_a": video_a_meta.get("creator"),
+            "duration_a": video_a_meta.get("duration"),
+            "eng_a": video_a_meta.get("engagement_rate"),
+            "views_a": video_a_meta.get("views"),
+            
+            "platform_b": video_b_meta.get("platform"),
+            "format_b": format_b,
+            "creator_b": video_b_meta.get("creator"),
+            "duration_b": video_b_meta.get("duration"),
+            "eng_b": video_b_meta.get("engagement_rate"),
+            "views_b": video_b_meta.get("views"),
+            
+            "context_a": context_a,
+            "context_b": context_b
+        })
+        
+        return response.content
+
+# fully compliant LangChain structure
+class StreamingCompareAgent:
+    def __init__(self, index_name: str = "compare-ai-os"):
+        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        self.vector_store = PineconeVectorStore(
+            index_name=index_name, 
+            embedding=self.embeddings,
+            namespace="live_comparison"
+        )
+        # Compliant: Use LangChain's native ecosystem for execution
+        self.llm = ChatGroq(
+            temperature=0.1,
+            model_name="llama-3.3-70b-versatile",
+            groq_api_key=os.getenv("GROQ_API_KEY")
+        )
+
+    def get_context(self, query: str) -> str:
+        docs = self.vector_store.similarity_search(query, k=4)
+        context_blocks = []
+        for d in docs:
+            tag = d.metadata.get("video_tag", "UNKNOWN")
+            creator = d.metadata.get("creator", "N/A")
+            idx = d.metadata.get("chunk_index", "0") # <-- Extract Chunk Index
+            context_blocks.append(f"[Source: Video {tag}, Chunk {idx} by {creator}]\nContent: {d.page_content}")
+        return "\n\n---\n\n".join(context_blocks)
+
+    def stream_chat_turn(self, query: str, history: List[Dict[str, str]], metrics: dict):
+        context = self.get_context(query)
+        
+        system_prompt = f"""You are an elite Social Media Growth & Quant Analyst. 
+CRITICAL METRICS DATA:
+Video A: {metrics.get('video_a', {})}
+Video B: {metrics.get('video_b', {})}
+
+RETRIEVED SOURCE TRANSCRIPT FRAGMENTS:
+{context}
+
+RULES:
+1. Ground your analysis directly in the provided context and metrics.
+2. You MUST explicitly cite the video and the exact chunk index when referencing context (e.g., "[Source: Video A, Chunk 2]").
+"""
+        # Formulate compliant LangChain base message formats
+        messages = [("system", system_prompt)]
+        for turn in history:
+            messages.append((turn["role"], turn["content"]))
+        messages.append(("user", query))
+        
+        # Use LangChain's unified stream engine interface
+        for chunk in self.llm.stream(messages):
+            if chunk.content:
+                yield chunk.content
+
+
+================================================================================
+--- FILE: H:\My Projects\CompareAI\extractor.py ---
+================================================================================
+
+import os
+import re
+import requests
+from typing import Dict, Any, Optional
+from pydantic import BaseModel
+from youtube_transcript_api import YouTubeTranscriptApi
+import yt_dlp
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# --- 1. Define Unified Data Schema ---
+class VideoMetadata(BaseModel):
+    video_id: str
+    platform: str
+    title: str
+    creator: str
+    follower_count: int
+    views: int
+    likes: int
+    comments: int
+    duration: int
+    upload_date: str
+    hashtags: list[str]
+    transcript: str
+    engagement_rate: float
+
+# --- 2. YouTube Extraction Engine ---
+# (Keep your existing YouTubeExtractor class exactly as it was)
+class YouTubeExtractor:
+    @staticmethod
+    def extract_video_id(url: str) -> Optional[str]:
+        pattern = r'(?:v=|\/shorts\/|\/embed\/|\/v\/|youtu\.be\/|\/v=)([^"&?\/ ]{11})'
+        match = re.search(pattern, url)
+        return match.group(1) if match else None
+
+    def get_metadata_and_transcript(self, url: str) -> Dict[str, Any]:
+        video_id = self.extract_video_id(url)
+        if not video_id:
+            raise ValueError("Invalid YouTube URL provided.")
+
+        ydl_opts = {'skip_download': True, 'quiet': True, 'no_warnings': True}
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+        views = info.get('view_count') or 0
+        likes = info.get('like_count') or 0
+        comments = info.get('comment_count') or 0
+        engagement_rate = ((likes + comments) / views * 100) if views > 0 else 0.0
+
+        # Fetch Transcript with Aggressive Search
+        try:
+            # 1. List all available transcripts for the video
+            transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
+            
+            # 2. Try to find any variation of English (manual or auto-generated)
+            try:
+                transcript_data = transcripts.find_transcript(['en', 'en-US', 'en-GB', 'en-IN', 'en-CA']).fetch()
+            except Exception:
+                # 3. If no English is found, just grab the very first available transcript (any language)
+                transcript_data = next(iter(transcripts)).fetch()
+                
+            # Clean up the text by stripping newlines and joining
+            raw_text = [t['text'].replace('\n', ' ') for t in transcript_data]
+            full_transcript = " ".join(raw_text)
+            
+        except Exception as e:
+            print(f"⚠️ YT Transcript fully unavailable (Captions disabled). Using description.")
+            full_transcript = info.get('description') or "No transcript available."
+
+        # Add Regex fallback for YouTube Hashtags
+        description = info.get('description') or ""
+        tags = info.get('tags') or []
+        if not tags: # If YouTube API fails to provide tags, scrape them manually
+            tags = re.findall(r"#(\w+)", description)
+            
+        return {
+            "video_id": video_id,
+            "platform": "youtube",
+            "title": info.get('title') or 'Unknown Title',
+            "creator": info.get('uploader') or 'Unknown Creator',
+            "follower_count": info.get('channel_follower_count') or 0,
+            "views": views,
+            "likes": likes,
+            "comments": comments,
+            "duration": info.get('duration') or 0,
+            "upload_date": info.get('upload_date') or 'Unknown Date',
+            "hashtags": tags, # <-- Now robustly populated
+            "transcript": full_transcript,
+            "engagement_rate": round(engagement_rate, 2)
+        }
+
+# --- 3. Instagram Extraction Engine (Instagram Looter API) ---
+class InstagramExtractor:
+    def __init__(self):
+        self.api_key = os.getenv("RAPIDAPI_KEY")
+        if not self.api_key:
+            raise EnvironmentError("RAPIDAPI_KEY is missing from .env file.")
+        
+        self.api_url = "https://instagram-looter2.p.rapidapi.com/post"
+        self.api_host = "instagram-looter2.p.rapidapi.com"
+
+    def get_metadata_and_transcript(self, url: str) -> Dict[str, Any]:
+        headers = {
+            "x-rapidapi-key": self.api_key,
+            "x-rapidapi-host": self.api_host,
+            "Content-Type": "application/json"
+        }
+        
+        # The Looter API takes the full URL directly. No regex needed!
+        querystring = {"url": url} 
+        
+        response = requests.get(self.api_url, headers=headers, params=querystring)
+        
+        if response.status_code != 200:
+            raise ConnectionError(f"Instagram API Failed: {response.status_code} - {response.text}")
+            
+        data = response.json()
+        
+        # Uncomment the line below temporarily if you get a KeyError, 
+        # so you can see the exact JSON structure the API returns in your terminal.
+        # print("DEBUG IG DATA:", data)
+        
+        try:
+            # NOTE: Because every RapidAPI wrapper names their keys differently, 
+            # I am making an educated guess based on standard Instagram JSON schemas. 
+            # If this throws a KeyError, check the printed DEBUG IG DATA and update the keys below.
+            
+            # Sometimes the data is wrapped in a 'data' object, sometimes it's at the root.
+            item = data if 'edge_media_preview_like' in data else data.get('data', {})
+
+            views = item.get('video_view_count') or 0
+            
+            # Instagram usually stores likes under 'edge_media_preview_like' -> 'count'
+            likes = item.get('edge_media_preview_like', {}).get('count') or item.get('like_count') or 0
+            
+            # Comments are usually under 'edge_media_to_comment' -> 'count'
+            comments = item.get('edge_media_to_comment', {}).get('count') or item.get('comment_count') or 0
+            
+            engagement_rate = ((likes + comments) / views * 100) if views > 0 else 0.0
+            
+            
+            # Caption parsing 
+            edges = item.get('edge_media_to_caption', {}).get('edges', [])
+            caption = edges[0].get('node', {}).get('text') if edges else ""
+            
+            # Aggressive Regex Hashtag scraping for IG
+            hashtags = re.findall(r"#(\w+)", caption)
+
+            # Deep fallback for IG comments (different Looter API endpoints nest this differently)
+            comments = (
+                item.get('edge_media_to_comment', {}).get('count') or 
+                item.get('edge_media_preview_comment', {}).get('count') or 
+                item.get('comment_count') or 0
+            )
+
+            return {
+                "video_id": item.get('shortcode', 'unknown_id'),
+                "platform": "instagram",
+                "title": caption[:50] + "...", 
+                "creator": item.get('owner', {}).get('username', 'Unknown Creator'),
+                "follower_count": item.get('owner', {}).get('edge_followed_by', {}).get('count') or 0,
+                "views": views,
+                "likes": likes,
+                "comments": comments, # <-- Now robustly populated
+                "duration": int(item.get('video_duration', 0)),
+                "upload_date": str(item.get('taken_at_timestamp', 'Unknown Date')),
+                "hashtags": hashtags, # <-- Now robustly populated
+                "transcript": caption if caption else "No caption available.", 
+                "engagement_rate": round(engagement_rate, 2)
+            }
+        except Exception as e:
+            # If the parsing fails, this will catch it and show you exactly what went wrong
+            raise KeyError(f"Failed to parse Instagram API response: {e}. Check the raw JSON structure.")
+        
+
+# --- 4. Orchestration Entry Point & Dynamic Routing ---
+def detect_platform(url: str) -> str:
+    """Intelligently routes the URL to the correct microservice based on domain."""
+    url_lower = url.lower()
+    if "youtube.com" in url_lower or "youtu.be" in url_lower:
+        return "youtube"
+    elif "instagram.com" in url_lower:
+        return "instagram"
+    else:
+        raise ValueError(f"Unsupported platform. Please provide a YouTube or Instagram URL. Invalid URL: {url}")
+
+def extract_all_video_data(url_a: str, url_b: str) -> Dict[str, VideoMetadata]:
+    yt_engine = YouTubeExtractor()
+    ig_engine = InstagramExtractor()
+    
+    # Process Video A
+    print(f"🚀 Detecting Platform for Video A...")
+    platform_a = detect_platform(url_a)
+    if platform_a == "youtube":
+        data_a = VideoMetadata(**yt_engine.get_metadata_and_transcript(url_a))
+    else:
+        data_a = VideoMetadata(**ig_engine.get_metadata_and_transcript(url_a))
+        
+    # Process Video B
+    print(f"🚀 Detecting Platform for Video B...")
+    platform_b = detect_platform(url_b)
+    if platform_b == "youtube":
+        data_b = VideoMetadata(**yt_engine.get_metadata_and_transcript(url_b))
+    else:
+        data_b = VideoMetadata(**ig_engine.get_metadata_and_transcript(url_b))
+    
+    return {
+        "video_A": data_a,
+        "video_B": data_b
+    }
+
+if __name__ == "__main__":
+    # Test it by passing TWO YouTube Shorts
+    sample_yt_1 = "https://www.youtube.com/shorts/dQw4w9WgXcQ" 
+    sample_yt_2 = "https://www.youtube.com/shorts/3JZ_D3ELwOQ"
+    
+    results = extract_all_video_data(sample_yt_1, sample_yt_2)
+    
+    print("\n✅ Dynamic Extraction Complete!")
+    print(f"Video A ({results['video_A'].platform}) | Creator: {results['video_A'].creator}")
+    print(f"Video B ({results['video_B'].platform}) | Creator: {results['video_B'].creator}")
+
+================================================================================
+--- FILE: H:\My Projects\CompareAI\indexer.py ---
+================================================================================
+
+import os
+from typing import List, Dict
+from dotenv import load_dotenv
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_pinecone import PineconeVectorStore
+from pinecone import Pinecone, ServerlessSpec
+
+from extractor import VideoMetadata, extract_all_video_data
+
+load_dotenv()
+
+class RAGIndexer:
+    def __init__(self, index_name: str = "compare-ai-os"):
+        self.pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+        self.index_name = index_name
+        self.namespace = "live_comparison" # <-- Isolate our data
+        
+        print("📥 Initializing local open-source embedding model (all-MiniLM-L6-v2)...")
+        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=400,
+            chunk_overlap=50,
+            separators=["\n\n", "\n", ".", " ", ""]
+        )
+        self._ensure_index_exists()
+
+    def _ensure_index_exists(self):
+        existing_indexes = [index_info["name"] for index_info in self.pc.list_indexes()]
+        if self.index_name not in existing_indexes:
+            print(f"🛠️ Creating new serverless Pinecone index: '{self.index_name}'...")
+            self.pc.create_index(
+                name=self.index_name,
+                dimension=384,
+                metric="cosine",
+                spec=ServerlessSpec(cloud="aws", region="us-east-1")
+            )
+            print("✅ Index created successfully.")
+        else:
+            print(f"✅ Found existing index: '{self.index_name}'")
+
+    def process_and_tag(self, extracted_data: Dict[str, VideoMetadata]) -> List[Document]:
+        docs = []
+        for video_label, video_data in extracted_data.items(): 
+            full_text = f"Title: {video_data.title}\nTranscript: {video_data.transcript}"
+            chunks = self.text_splitter.split_text(full_text)
+            
+            for i, chunk in enumerate(chunks):
+                metadata = {
+                    "video_tag": "A" if "A" in video_label else "B",
+                    "video_id": video_data.video_id,
+                    "platform": video_data.platform,
+                    "creator": video_data.creator,
+                    "engagement_rate": video_data.engagement_rate,
+                    "chunk_index": i
+                }
+                docs.append(Document(page_content=chunk, metadata=metadata))
+                
+        print(f"🧩 Split text into {len(docs)} tagged chunks.")
+        return docs
+
+    def index_to_vector_db(self, docs: List[Document]):
+        """Wipes the old context clean, then embeds and uploads the new vectors."""
+        print("🧹 Wiping previous video data from Vector DB...")
+        try:
+            index = self.pc.Index(self.index_name)
+            # Delete all vectors in our specific namespace so old videos don't pollute the new report
+            index.delete(delete_all=True, namespace=self.namespace)
+        except Exception as e:
+            print(f"⚠️ Note on cleanup (Expected on first run): {e}")
+
+        print(f"📤 Uploading {len(docs)} fresh chunks to Pinecone...")
+        PineconeVectorStore.from_documents(
+            documents=docs,
+            embedding=self.embeddings,
+            index_name=self.index_name,
+            namespace=self.namespace # <-- Upload to the isolated namespace
+        )
+        print("✅ Successfully indexed fresh data into Vector DB.")
+
+if __name__ == "__main__":
+    # Test block
+    sample_yt = "https://www.youtube.com/shorts/dQw4w9WgXcQ" 
+    sample_ig = "https://www.instagram.com/reels/DYQSPVCT_V-/"
+    raw_data = extract_all_video_data(sample_yt, sample_ig)
+    indexer = RAGIndexer()
+    tagged_documents = indexer.process_and_tag(raw_data)
+    indexer.index_to_vector_db(tagged_documents)
+
+================================================================================
+--- FILE: H:\My Projects\CompareAI\main.py ---
+================================================================================
+
+import os
+import traceback
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Dict
+
+# Import your architectural pieces
+from extractor import extract_all_video_data
+from indexer import RAGIndexer
+from agent import CompareAIEngine, StreamingCompareAgent # <-- Make sure to add StreamingCompareAgent to agent.py
+
+app = FastAPI(title="CompareAI Core Engine")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Request Models ---
+class ComparisonRequest(BaseModel):
+    video_url_a: str
+    video_url_b: str
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatTurnRequest(BaseModel):
+    query: str
+    history: List[ChatMessage]
+    metrics: dict
+
+# --- GLOBAL INITIALIZATION (The Scaling Secret) ---
+# We load these heavy models into memory once at startup. 
+# Now, routing requests takes milliseconds, not seconds.
+print("⏳ Initializing AI Engines (Loading HuggingFace models)...")
+rag_indexer = RAGIndexer()
+engine = CompareAIEngine()
+streaming_agent = StreamingCompareAgent()
+print("✅ AI Engines Ready!")
+
+def helper_to_dict(obj):
+    if obj is None: return {}
+    if isinstance(obj, dict): return obj
+    if hasattr(obj, "__dict__"): return obj.__dict__
+    return str(obj)
+
+# --- ROUTE 1: Initial Extraction & Indexing ---
+@app.post("/api/compare")
+async def compare_videos(request: ComparisonRequest):
+    try:
+        print("\n" + "="*50)
+        print(f"📥 RECEIVED NEW REQUEST:\nURL A: {request.video_url_a}\nURL B: {request.video_url_b}")
+        
+        print("⚡ Phase 1: Extractor...")
+        raw_data = extract_all_video_data(request.video_url_a, request.video_url_b)
+        
+        video_a_meta = helper_to_dict(raw_data.get("video_A") or raw_data.get("Video A"))
+        video_b_meta = helper_to_dict(raw_data.get("video_B") or raw_data.get("Video B"))
+        
+        print("🗂️ Phase 2: Vector DB Ingestion...")
+        tagged_documents = rag_indexer.process_and_tag(raw_data)
+        rag_indexer.index_to_vector_db(tagged_documents)
+        
+        print("🤖 Phase 3: Groq Reasoning Agent...")
+        report_markdown = engine.generate_comparison_report(video_a_meta, video_b_meta)
+        print("✅ Report Generated!")
+        print("="*50)
+        
+        return {
+            "success": True,
+            "metrics": {
+                "video_a": video_a_meta,
+                "video_b": video_b_meta
+            },
+            "report": report_markdown
+        }
+    except Exception as e:
+        traceback.print_exc() 
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- ROUTE 2: Interactive RAG Chat Stream ---
+@app.post("/api/chat/stream")
+async def chat_stream_endpoint(request: ChatTurnRequest):
+    try:
+        # Parse history cleanly for the LangChain/Groq agent
+        formatted_history = [{"role": m.role, "content": m.content} for m in request.history]
+        
+        # Call the globally initialized agent
+        return StreamingResponse(
+            streaming_agent.stream_chat_turn(request.query, formatted_history, request.metrics),
+            media_type="text/event-stream"
+        )
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
+
+================================================================================
+--- FILE: H:\My Projects\CompareAI\frontend\ios\Flutter\ephemeral\flutter_lldb_helper.py ---
+================================================================================
+
+#
+# Generated file, do not edit.
+#
+
+import lldb
+
+def handle_new_rx_page(frame: lldb.SBFrame, bp_loc, extra_args, intern_dict):
+    """Intercept NOTIFY_DEBUGGER_ABOUT_RX_PAGES and touch the pages."""
+    base = frame.register["x0"].GetValueAsAddress()
+    page_len = frame.register["x1"].GetValueAsUnsigned()
+
+    # Note: NOTIFY_DEBUGGER_ABOUT_RX_PAGES will check contents of the
+    # first page to see if handled it correctly. This makes diagnosing
+    # misconfiguration (e.g. missing breakpoint) easier.
+    data = bytearray(page_len)
+    data[0:8] = b'IHELPED!'
+
+    error = lldb.SBError()
+    frame.GetThread().GetProcess().WriteMemory(base, data, error)
+    if not error.Success():
+        print(f'Failed to write into {base}[+{page_len}]', error)
+        return
+
+def __lldb_init_module(debugger: lldb.SBDebugger, _):
+    target = debugger.GetDummyTarget()
+    # Caveat: must use BreakpointCreateByRegEx here and not
+    # BreakpointCreateByName. For some reasons callback function does not
+    # get carried over from dummy target for the later.
+    bp = target.BreakpointCreateByRegex("^NOTIFY_DEBUGGER_ABOUT_RX_PAGES$")
+    bp.SetScriptCallbackFunction('{}.handle_new_rx_page'.format(__name__))
+    bp.SetAutoContinue(True)
+    print("-- LLDB integration loaded --")
+
+
+================================================================================
+--- FILE: H:\My Projects\CompareAI\frontend\README.md ---
+================================================================================
+
+# frontend
+
+A new Flutter project.
+
+## Getting Started
+
+This project is a starting point for a Flutter application.
+
+A few resources to get you started if this is your first Flutter project:
+
+- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
+- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
+- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+
+For help getting started with Flutter development, view the
+[online documentation](https://docs.flutter.dev/), which offers tutorials,
+samples, guidance on mobile development, and a full API reference.
+
+
+================================================================================
+--- FILE: H:\My Projects\CompareAI\frontend\ios\Runner\Assets.xcassets\LaunchImage.imageset\README.md ---
+================================================================================
+
+# Launch Screen Assets
+
+You can customize the launch screen with your own desired assets by replacing the image files in this directory.
+
+You can also do it by opening your Flutter project's Xcode project with `open ios/Runner.xcworkspace`, selecting `Runner/Assets.xcassets` in the Project Navigator and dropping in the desired images.

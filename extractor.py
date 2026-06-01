@@ -70,6 +70,12 @@ class YouTubeExtractor:
             print(f"⚠️ YT Transcript fully unavailable (Captions disabled). Using description.")
             full_transcript = info.get('description') or "No transcript available."
 
+        # Add Regex fallback for YouTube Hashtags
+        description = info.get('description') or ""
+        tags = info.get('tags') or []
+        if not tags: # If YouTube API fails to provide tags, scrape them manually
+            tags = re.findall(r"#(\w+)", description)
+            
         return {
             "video_id": video_id,
             "platform": "youtube",
@@ -81,7 +87,7 @@ class YouTubeExtractor:
             "comments": comments,
             "duration": info.get('duration') or 0,
             "upload_date": info.get('upload_date') or 'Unknown Date',
-            "hashtags": info.get('tags') or [],
+            "hashtags": tags, # <-- Now robustly populated
             "transcript": full_transcript,
             "engagement_rate": round(engagement_rate, 2)
         }
@@ -135,23 +141,34 @@ class InstagramExtractor:
             
             engagement_rate = ((likes + comments) / views * 100) if views > 0 else 0.0
             
-            # Caption parsing (often deeply nested in IG JSON)
+            
+            # Caption parsing 
             edges = item.get('edge_media_to_caption', {}).get('edges', [])
-            caption = edges[0].get('node', {}).get('text') if edges else "No caption available."
+            caption = edges[0].get('node', {}).get('text') if edges else ""
+            
+            # Aggressive Regex Hashtag scraping for IG
+            hashtags = re.findall(r"#(\w+)", caption)
+
+            # Deep fallback for IG comments (different Looter API endpoints nest this differently)
+            comments = (
+                item.get('edge_media_to_comment', {}).get('count') or 
+                item.get('edge_media_preview_comment', {}).get('count') or 
+                item.get('comment_count') or 0
+            )
 
             return {
                 "video_id": item.get('shortcode', 'unknown_id'),
                 "platform": "instagram",
                 "title": caption[:50] + "...", 
                 "creator": item.get('owner', {}).get('username', 'Unknown Creator'),
-                "follower_count": 0, # Often not provided in post-specific endpoints
+                "follower_count": item.get('owner', {}).get('edge_followed_by', {}).get('count') or 0,
                 "views": views,
                 "likes": likes,
-                "comments": comments,
+                "comments": comments, # <-- Now robustly populated
                 "duration": int(item.get('video_duration', 0)),
                 "upload_date": str(item.get('taken_at_timestamp', 'Unknown Date')),
-                "hashtags": [],
-                "transcript": caption, 
+                "hashtags": hashtags, # <-- Now robustly populated
+                "transcript": caption if caption else "No caption available.", 
                 "engagement_rate": round(engagement_rate, 2)
             }
         except Exception as e:

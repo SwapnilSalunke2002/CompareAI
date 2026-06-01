@@ -1,0 +1,22 @@
+# CompareAI - Elite RAG Video Analysis
+
+CompareAI is a full-stack RAG (Retrieval-Augmented Generation) application designed to dynamically extract, embed, and cross-examine social media video metrics (YouTube Shorts & Instagram Reels). 
+
+## 🧠 Architectural Trade-offs & Scalability Defense
+This application was architected to handle **1,000+ creators a day** at the absolute lowest cost margin without sacrificing GPT-4 level reasoning. 
+
+* **The Embedding Layer (Zero Cost):** Relying on OpenAI for vector embeddings at scale burns cash. I decoupled the embedding layer and deployed the open-source `all-MiniLM-L6-v2` locally via HuggingFace. It outputs hyper-efficient 384-dimensional vectors, dropping vector generation costs to exactly $0.00 while maintaining elite semantic retrieval.
+* **The Vector DB (Serverless):** Pinecone Serverless was selected over standard pod-based clusters. By isolating runs into a dynamic `live_comparison` namespace that wipes itself pre-execution, we only pay for fractional read/writes, keeping cloud costs strictly tied to usage, not uptime.
+* **The Inference Engine (Speed):** Built on Groq's LPU fabric running `llama-3.3-70b-versatile`. This delivers sub-second streaming responses for the chat UI, providing a native-feeling application experience while costing a fraction of Claude 3.5 Sonnet.
+* **The Frontend (CanvasKit/WASM):** Built using compiled Flutter Web (WASM). While React/Next.js is standard, utilizing WebAssembly bypasses traditional DOM layout shifts, allowing the streaming RAG chat panel to expand/collapse while preserving complex widget states flawlessly.
+
+## 🚀 Quick Start
+1. Clone the repo and configure the `.env` using `.env.example`.
+2. Start the backend: `uvicorn main:app --reload --port 8000`
+3. Start the frontend: `flutter run -d chrome --release --wasm`
+
+## ⚙️ Environment Variables (.env.example)
+```text
+GROQ_API_KEY=your_groq_key
+PINECONE_API_KEY=your_pinecone_key
+RAPIDAPI_KEY=your_rapid_api_key_for_ig_looter

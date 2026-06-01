@@ -5,6 +5,7 @@ import '../widgets/chat_panel.dart';
 import '../widgets/url_input_card.dart';
 import '../widgets/metrics_dashboard.dart';
 import '../widgets/reasoning_report.dart';
+import '../widgets/skeleton_loader.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -69,32 +70,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool hasData = _metrics != null;
+    // We are in the "Idle" state if we have no data AND we aren't currently loading it.
+    final bool isIdleState = _metrics == null && !_isLoading;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'CompareAI',
-          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: Colors.white),
-        ),
-        backgroundColor: const Color(0xFF09090B),
-        elevation: 0,
-        centerTitle: false,
-        bottom: _isLoading 
-            ? const PreferredSize(
-                preferredSize: Size.fromHeight(2),
-                child: LinearProgressIndicator(
-                  backgroundColor: Colors.transparent, 
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              )
-            : null,
+      // appBar: AppBar(
+      //   title: const Text(
+      //     'CompareAI',
+      //     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: Colors.white),
+      //   ),
+      //   backgroundColor: const Color(0xFF09090B),
+      //   elevation: 0,
+      //   centerTitle: false,
+      // ),
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 600),
+        switchInCurve: Curves.easeOutCirc,
+        switchOutCurve: Curves.easeInCirc,
+        child: isIdleState 
+            ? _buildHeroLandingState() 
+            : _buildActiveWorkspaceState(context),
       ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 16.0),
+    );
+  }
+
+  // --- STATE 1: THE CENTERED HERO LANDING ---
+  Widget _buildHeroLandingState() {
+    return Center(
+      key: const ValueKey('HeroState'), // Key required for AnimatedSwitcher
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 800),
+        padding: const EdgeInsets.symmetric(horizontal: 32),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // Premium Glowing Icon
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.03),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withOpacity(0.05)),
+              ),
+              child: const Icon(Icons.analytics_rounded, size: 64, color: Colors.white),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'CompareAI: Cross-Examine Content',
+              style: TextStyle(color: Colors.white, fontSize: 42, fontWeight: FontWeight.bold, letterSpacing: -1.0),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Provide two video URLs to extract metrics, vector database their transcripts, and generate a competitive RAG analysis report instantly.',
+              style: TextStyle(color: Color(0xFFA1A1AA), fontSize: 16, height: 1.5),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 48),
+            
+            // The Input Bar (Centered)
             UrlInputCard(
               controllerA: _urlAController,
               controllerB: _urlBController,
@@ -103,79 +137,83 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             
             if (_errorMessage != null) ...[
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.withOpacity(0.3)),
-                ),
-                child: Text(
-                  _errorMessage!,
-                  style: const TextStyle(color: Colors.redAccent),
-                  textAlign: TextAlign.center,
-                ),
-              ),
+              const SizedBox(height: 24),
+              Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent)),
             ],
+          ],
+        ),
+      ),
+    );
+  }
 
-            const SizedBox(height: 24),
-            
-            Expanded(
-              child: !hasData
-                  ? const Center(
-                      child: Text(
-                        'Awaiting Video Context...',
-                        style: TextStyle(color: Color(0xFFA1A1AA), fontSize: 16),
-                      ),
-                    )
-                  : Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // FIX: Left panel uses AnimatedContainer. The tree structure is NEVER broken.
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 250),
-                          curve: Curves.easeInOut,
-                          width: _isChatExpanded ? 0 : MediaQuery.of(context).size.width * 0.45,
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            physics: const NeverScrollableScrollPhysics(),
-                            child: SizedBox(
-                              // Lock the width to prevent layout wrapping artifacts while collapsing
-                              width: MediaQuery.of(context).size.width * 0.45,
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 24),
-                                child: ListView(
-                                  physics: const BouncingScrollPhysics(),
-                                  children: [
-                                    MetricsDashboard(metrics: _metrics!),
-                                    const SizedBox(height: 24),
-                                    if (_reportMarkdown != null)
-                                      ReasoningReport(markdownData: _reportMarkdown!),
-                                  ],
-                                ),
+  // --- STATE 2: THE ACTIVE WORKSPACE ---
+  Widget _buildActiveWorkspaceState(BuildContext context) {
+    return Padding(
+      key: const ValueKey('WorkspaceState'), // Key required for AnimatedSwitcher
+      padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // The Input Bar (Docked at top)
+          UrlInputCard(
+            controllerA: _urlAController,
+            controllerB: _urlBController,
+            isLoading: _isLoading,
+            onPressed: _analyzeVideos,
+          ),
+          
+          if (_errorMessage != null) ...[
+            const SizedBox(height: 16),
+            Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent)),
+          ],
+
+          const SizedBox(height: 24),
+          
+          Expanded(
+            child: _isLoading 
+                ? const SkeletonLoader() 
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeInOut,
+                        width: _isChatExpanded ? 0 : MediaQuery.of(context).size.width * 0.45,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const NeverScrollableScrollPhysics(),
+                          child: SizedBox(
+                            width: MediaQuery.of(context).size.width * 0.45,
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 24),
+                              child: ListView(
+                                physics: const BouncingScrollPhysics(),
+                                children: [
+                                  MetricsDashboard(metrics: _metrics!),
+                                  const SizedBox(height: 24),
+                                  if (_reportMarkdown != null)
+                                    ReasoningReport(markdownData: _reportMarkdown!),
+                                ],
                               ),
                             ),
                           ),
                         ),
-                        
-                        // Right Panel: Chatbot occupies remaining layout space safely
-                        Expanded(
-                          child: ChatPanel(
-                            metrics: _metrics!,
-                            isExpanded: _isChatExpanded,
-                            onExpandToggle: () {
-                              setState(() {
-                                _isChatExpanded = !_isChatExpanded;
-                              });
-                            },
-                          ),
+                      ),
+                      Expanded(
+                        child: ChatPanel(
+                          metrics: _metrics!,
+                          isExpanded: _isChatExpanded,
+                          onExpandToggle: () {
+                            setState(() {
+                              _isChatExpanded = !_isChatExpanded;
+                            });
+                          },
                         ),
-                      ],
-                    ),
-            ),
-          ],
-        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
       ),
     );
   }

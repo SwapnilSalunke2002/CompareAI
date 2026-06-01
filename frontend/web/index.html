@@ -1,46 +1,129 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="AI-Powered Video Cross-Examination">
 
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="frontend">
+  <meta name="apple-mobile-web-app-title" content="CompareAI">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
-
-  <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>frontend</title>
+  <title>CompareAI</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    body {
+      background-color: #09090B; /* Deep Zinc Base */
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    #loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      /* Smooth fade and slight scale down on exit */
+      transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+    }
+
+    /* 1. Metallic Shimmer Text Effect */
+    .brand-text {
+      font-size: 36px;
+      font-weight: 900;
+      letter-spacing: 4px;
+      /* The gradient creates the dark edges and bright white center */
+      background: linear-gradient(110deg, #3F3F46 0%, #FAFAFA 40%, #FAFAFA 60%, #3F3F46 100%);
+      background-size: 200% auto;
+      color: transparent;
+      -webkit-background-clip: text;
+      background-clip: text;
+      animation: shine 2s linear infinite;
+    }
+
+    /* 2. Sleek sweeping loading bar */
+    .loading-track {
+      margin-top: 24px;
+      width: 160px;
+      height: 2px;
+      background-color: #27272A; /* Subtle track background */
+      border-radius: 2px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .loading-track::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 30%;
+      background-color: #3B82F6; /* The subtle blue accent matching the dashboard */
+      border-radius: 2px;
+      animation: sweep 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+    }
+
+    /* 3. Sub-status text */
+    .status-text {
+      margin-top: 16px;
+      color: #71717A;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+
+    /* Keyframes */
+    @keyframes shine {
+      to {
+        background-position: 200% center;
+      }
+    }
+
+    @keyframes sweep {
+      0% {
+        left: -20%;
+        width: 20%;
+      }
+      100% {
+        left: 100%;
+        width: 50%;
+      }
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <div id="loading-container">
+    <div class="brand-text">CompareAI</div>
+    <div class="loading-track"></div>
+    <div class="status-text">Booting Inference Engine...</div>
+  </div>
+
   <script src="flutter_bootstrap.js" async></script>
+  
+  <script>
+    // Listens for the exact millisecond Flutter draws the first dashboard frame
+    window.addEventListener('flutter-first-frame', function () {
+      var loader = document.getElementById('loading-container');
+      if (loader) {
+        // Creates a beautiful "push back" fade effect into the dashboard
+        loader.style.transform = 'scale(0.95)';
+        loader.style.opacity = '0';
+        setTimeout(() => loader.remove(), 500); 
+      }
+    });
+  </script>
 </body>
 </html>

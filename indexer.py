@@ -3,7 +3,7 @@ from typing import List, Dict
 from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings  # Updated to local open-source
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone, ServerlessSpec
 
@@ -12,12 +12,12 @@ from extractor import VideoMetadata, extract_all_video_data
 load_dotenv()
 
 class RAGIndexer:
-    def __init__(self, index_name: str = "compare-ai-os"):  # Updated index name for OS model
+    def __init__(self, index_name: str = "compare-ai-os"):
         self.pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         self.index_name = index_name
+        self.namespace = "live_comparison" # <-- Isolate our data
         
         print("📥 Initializing local open-source embedding model (all-MiniLM-L6-v2)...")
-        # Runs 100% locally on your machine, zero cost, zero keys needed!
         self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -28,13 +28,12 @@ class RAGIndexer:
         self._ensure_index_exists()
 
     def _ensure_index_exists(self):
-        """Creates the Pinecone index dynamically if it doesn't exist."""
         existing_indexes = [index_info["name"] for index_info in self.pc.list_indexes()]
         if self.index_name not in existing_indexes:
             print(f"🛠️ Creating new serverless Pinecone index: '{self.index_name}'...")
             self.pc.create_index(
                 name=self.index_name,
-                dimension=384,  # all-MiniLM-L6-v2 uses exactly 384 dimensions
+                dimension=384,
                 metric="cosine",
                 spec=ServerlessSpec(cloud="aws", region="us-east-1")
             )
@@ -43,7 +42,6 @@ class RAGIndexer:
             print(f"✅ Found existing index: '{self.index_name}'")
 
     def process_and_tag(self, extracted_data: Dict[str, VideoMetadata]) -> List[Document]:
-        """Chunks the transcripts and strictly tags them as Video A or B."""
         docs = []
         for video_label, video_data in extracted_data.items(): 
             full_text = f"Title: {video_data.title}\nTranscript: {video_data.transcript}"
@@ -64,24 +62,29 @@ class RAGIndexer:
         return docs
 
     def index_to_vector_db(self, docs: List[Document]):
-        """Embeds locally and uploads the vectors to Pinecone."""
-        print(f"📤 Uploading {len(docs)} chunks to Pinecone...")
+        """Wipes the old context clean, then embeds and uploads the new vectors."""
+        print("🧹 Wiping previous video data from Vector DB...")
+        try:
+            index = self.pc.Index(self.index_name)
+            # Delete all vectors in our specific namespace so old videos don't pollute the new report
+            index.delete(delete_all=True, namespace=self.namespace)
+        except Exception as e:
+            print(f"⚠️ Note on cleanup (Expected on first run): {e}")
+
+        print(f"📤 Uploading {len(docs)} fresh chunks to Pinecone...")
         PineconeVectorStore.from_documents(
             documents=docs,
             embedding=self.embeddings,
-            index_name=self.index_name
+            index_name=self.index_name,
+            namespace=self.namespace # <-- Upload to the isolated namespace
         )
-        print("✅ Successfully indexed into Vector DB.")
+        print("✅ Successfully indexed fresh data into Vector DB.")
 
 if __name__ == "__main__":
+    # Test block
     sample_yt = "https://www.youtube.com/shorts/dQw4w9WgXcQ" 
     sample_ig = "https://www.instagram.com/reels/DYQSPVCT_V-/"
-    
-    print("--- STEP 1: EXTRACTION ---")
     raw_data = extract_all_video_data(sample_yt, sample_ig)
-    
-    print("\n--- STEP 2: CHUNKING & INDEXING ---")
     indexer = RAGIndexer()
     tagged_documents = indexer.process_and_tag(raw_data)
-    
     indexer.index_to_vector_db(tagged_documents)
