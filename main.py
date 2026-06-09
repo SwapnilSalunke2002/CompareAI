@@ -86,14 +86,24 @@ async def compare_videos(request: ComparisonRequest):
         traceback.print_exc() 
         raise HTTPException(status_code=500, detail=str(e))
 
-# ROUTE 2: Interactive RAG Chat Stream ---
 @app.post("/api/chat/stream")
 async def chat_stream_endpoint(request: ChatTurnRequest):
     try:
+        # Parse history cleanly for the LangChain/Groq agent
         formatted_history = [{"role": m.role, "content": m.content} for m in request.history]
+        
+        print(f"💬 Active Chat Query Processing: '{request.query}'")
+        
+        # We pass explicit network bypass headers to punch through the Hugging Face proxy layer
         return StreamingResponse(
             streaming_agent.stream_chat_turn(request.query, formatted_history, request.metrics),
-            media_type="text/event-stream"
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # <-- THE MAGIC BULLET: Forces Hugging Face to stream text instantly!
+                "Access-Control-Allow-Origin": "*",
+            }
         )
     except Exception as e:
         traceback.print_exc()
